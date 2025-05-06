@@ -6,10 +6,7 @@ import os
 import logging
 import copy
 
-LOG_FILENAME = "logs/fcfs-sitemanager.log"
-LOG_DIR = os.path.dirname(LOG_FILENAME)
-if LOG_DIR and not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILENAME = "logs/priority-manager.log"
 
 logging.basicConfig(
     filename=LOG_FILENAME,
@@ -33,7 +30,6 @@ class SiteManager:
             "Warning": {"count": 0, "total_time": 0.0},
             "Error": {"count": 0, "total_time": 0.0},
         }
-
         self.current_cycle_category_timing = {
             "Success": {"count": 0, "total_time": 0.0},
             "Warning": {"count": 0, "total_time": 0.0},
@@ -44,29 +40,37 @@ class SiteManager:
             "Warning": {"count": 0, "total_time": 0.0},
             "Error": {"count": 0, "total_time": 0.0},
         }
-        self.last_cycle_overall_avg_proc_log_time = None
-        self.last_cycle_overall_proc_log_count = 0
+        self.last_cycle_overall_avg_response_time = None
+        self.last_cycle_overall_response_count = 0
 
         for site in self.sites:
             self.status_dict[site] = {
                 "status": "Aguardando 1ª checagem...",
                 "message": "",
             }
-        logging.info(f"SiteManager (FCFS) inicializado com {len(sites)} sites.")
-        print(f"TERMINAL: SiteManager (FCFS) inicializado com {len(sites)} sites.")
+        logging.info(
+            f"SiteManager (Priority Scheduling) inicializado com {len(sites)} sites."
+        )
+        print(
+            f"TERMINAL: SiteManager (Priority Scheduling) inicializado com {len(sites)} sites."
+        )
 
     def check_status_thread_target(self, site):
         thread_name = threading.current_thread().name
         logging.info(f"[{thread_name}] Iniciando checagem para o site: {site}")
+
         t_start_check_process = time.time()
+
         status_code_or_custom = "Erro Desconhecido"
         message = "Não foi possível obter o status."
         http_response_time_info = ""
+
         try:
             response = requests.get(site, timeout=10)
             status_code_or_custom = response.status_code
             elapsed_http_time = response.elapsed.total_seconds()
             http_response_time_info = f"{elapsed_http_time:.2f}s HTTP"
+
             if 200 <= status_code_or_custom < 300:
                 if "uuidtools.com/api/generate/" in site:
                     try:
@@ -100,10 +104,14 @@ class SiteManager:
             status_code_or_custom = -3
             message = f"Erro req: {type(e).__name__}"
             logging.error(f"[{thread_name}] ReqException {site}: {e}")
+
         final_log_message = f"[{thread_name}] Concluído {site}: Status {status_code_or_custom}, Msg: {message}"
         logging.info(final_log_message)
+
         t_end_log_process = time.time()
+
         duration_proc_and_log = t_end_log_process - t_start_check_process
+
         with self.lock:
             self.results.put(
                 (site, status_code_or_custom, message, duration_proc_and_log)
@@ -117,10 +125,10 @@ class SiteManager:
             return
 
         logging.info(
-            f"run_checks (FCFS) iniciado. Tela: {screen_update_interval}s. Rechecagem: {site_recheck_period}s."
+            f"run_checks (Priority) iniciado. Tela: {screen_update_interval}s. Rechecagem: {site_recheck_period}s."
         )
         print(
-            f"TERMINAL: run_checks (FCFS). Tela: {screen_update_interval}s. Rechecagem: {site_recheck_period}s."
+            f"TERMINAL: run_checks (Priority). Tela: {screen_update_interval}s. Rechecagem: {site_recheck_period}s."
         )
 
         next_full_recheck_time = time.time()
@@ -140,21 +148,21 @@ class SiteManager:
                     overall_item_count_completed_cycle += category_data["count"]
 
                 if overall_item_count_completed_cycle > 0:
-                    self.last_cycle_overall_avg_proc_log_time = (
+                    self.last_cycle_overall_avg_response_time = (
                         overall_total_duration_completed_cycle
                         / overall_item_count_completed_cycle
                     )
-                    self.last_cycle_overall_proc_log_count = (
+                    self.last_cycle_overall_response_count = (
                         overall_item_count_completed_cycle
                     )
                     logging.info(
-                        f"Fim ciclo (FCFS). Geral Ciclo (Proc+Log): {self.last_cycle_overall_avg_proc_log_time:.3f}s ({self.last_cycle_overall_proc_log_count} itens)"
+                        f"Fim do ciclo. Geral Ciclo (Proc+Log): {self.last_cycle_overall_avg_response_time:.3f}s ({self.last_cycle_overall_response_count} itens)"
                     )
                 else:
-                    self.last_cycle_overall_avg_proc_log_time = None
-                    self.last_cycle_overall_proc_log_count = 0
+                    self.last_cycle_overall_avg_response_time = None
+                    self.last_cycle_overall_response_count = 0
                     logging.info(
-                        "Fim ciclo (FCFS). Nenhum item com tempo no ciclo anterior (geral)."
+                        "Fim do ciclo. Nenhum item com tempo no ciclo anterior (geral)."
                     )
 
                 self.last_cycle_category_timing_snapshot = copy.deepcopy(
@@ -165,22 +173,41 @@ class SiteManager:
                     self.current_cycle_category_timing[category_key]["total_time"] = 0.0
 
                 logging.info(
-                    f"--- Iniciando ciclo FCFS {len(self.sites)} sites às {time.strftime('%H:%M:%S')} ---"
+                    f"--- Iniciando ciclo Priority Scheduling {len(self.sites)} sites às {time.strftime('%H:%M:%S')} ---"
                 )
                 print(
-                    f"TERMINAL: --- Novo ciclo FCFS {len(self.sites)} sites às {time.strftime('%H:%M:%S')} ---"
+                    f"TERMINAL: --- Novo ciclo Priority Scheduling {len(self.sites)} sites às {time.strftime('%H:%M:%S')} ---"
                 )
-                fcfs_dispatch_queue_for_cycle = queue.Queue()
+                priority_dispatch_queue = queue.PriorityQueue()
+                dispatch_order_counter = 0
                 for site_url in self.sites:
-                    fcfs_dispatch_queue_for_cycle.put(site_url)
-                logging.info(f"Todos os {len(self.sites)} sites na fila FCFS.")
+                    with self.lock:
+                        last_known_status = self.status_dict.get(site_url, {}).get(
+                            "status", "Aguardando 1ª checagem..."
+                        )
+                    priority_level = 2
+                    if isinstance(last_known_status, int):
+                        if last_known_status in [-1, -2, -3] or (
+                            500 <= last_known_status < 600
+                        ):
+                            priority_level = 0
+                        elif 400 <= last_known_status < 500:
+                            priority_level = 1
+                    elif last_known_status == "Aguardando 1ª checagem...":
+                        priority_level = 1
+                    priority_dispatch_queue.put(
+                        (priority_level, dispatch_order_counter, site_url)
+                    )
+                    dispatch_order_counter += 1
                 with self.lock:
                     self.results = queue.Queue()
                 active_threads_this_cycle.clear()
-                while not fcfs_dispatch_queue_for_cycle.empty():
+                while not priority_dispatch_queue.empty():
                     try:
-                        site_to_check = fcfs_dispatch_queue_for_cycle.get_nowait()
-                        logging.info(f"FCFS: Despachando {site_to_check}")
+                        prio, _, site_to_check = priority_dispatch_queue.get_nowait()
+                        logging.info(
+                            f"Priority Scheduler: Despachando {site_to_check} (Prio: {prio})"
+                        )
                         site_name_for_thread = (
                             site_to_check.split("//")[-1]
                             .replace(".", "-")
@@ -193,12 +220,11 @@ class SiteManager:
                         )
                         active_threads_this_cycle.append(thread)
                         thread.start()
-                        fcfs_dispatch_queue_for_cycle.task_done()
                     except queue.Empty:
                         break
                 next_full_recheck_time = current_time + site_recheck_period
                 logging.info(
-                    f"Checagens FCFS despachadas. Próximo ciclo ~{time.strftime('%H:%M:%S', time.localtime(next_full_recheck_time))}."
+                    f"Checagens despachadas. Próximo ciclo ~{time.strftime('%H:%M:%S', time.localtime(next_full_recheck_time))}."
                 )
 
             with self.lock:
@@ -207,6 +233,7 @@ class SiteManager:
                         site, status_val, message_str, proc_log_duration_val = (
                             self.results.get_nowait()
                         )
+
                         self.status_dict[site] = {
                             "status": status_val,
                             "message": message_str,
@@ -249,14 +276,43 @@ class SiteManager:
     def update_screen(self):
         os.system("cls" if os.name == "nt" else "clear")
         print("-" * 70)
-        print("          Site Manager (FCFS - Thread per Check)")
+        print("      Site Manager (Priority Scheduling - Thread per Check)")
         print("-" * 70)
 
         if not self.status_dict:
             print("Nenhum site para exibir.")
         else:
+            display_items_with_priority = []
+            temp_counter = 0
             for site_url_disp, data_disp in self.status_dict.items():
-                status_val, message = data_disp["status"], data_disp["message"]
+                last_known_status_disp = data_disp.get(
+                    "status", "Aguardando 1ª checagem..."
+                )
+                priority_level_disp = 2
+                if isinstance(last_known_status_disp, int):
+                    if last_known_status_disp in [-1, -2, -3] or (
+                        500 <= last_known_status_disp < 600
+                    ):
+                        priority_level_disp = 0
+                    elif 400 <= last_known_status_disp < 500:
+                        priority_level_disp = 1
+                elif last_known_status_disp == "Aguardando 1ª checagem...":
+                    priority_level_disp = 1
+                display_items_with_priority.append(
+                    {
+                        "prio": priority_level_disp,
+                        "counter": temp_counter,
+                        "site": site_url_disp,
+                        "data": data_disp,
+                    }
+                )
+                temp_counter += 1
+            sorted_display_items = sorted(
+                display_items_with_priority, key=lambda x: (x["prio"], x["site"])
+            )
+            for item in sorted_display_items:
+                site, data, prio_disp = item["site"], item["data"], item["prio"]
+                status_val, message = data["status"], data["message"]
                 status_str = ""
                 if isinstance(status_val, int):
                     if 200 <= status_val < 300:
@@ -275,12 +331,10 @@ class SiteManager:
                         status_str = str(status_val)
                 else:
                     status_str = str(status_val)
-                display_site = (
-                    site_url_disp[:38] + "..."
-                    if len(site_url_disp) > 41
-                    else site_url_disp
+                display_site = site[:35] + "..." if len(site) > 38 else site
+                print(
+                    f"(P{prio_disp}) {display_site:<38}: {status_str:<18} ({message})"
                 )
-                print(f"- {display_site:<42}: {status_str:<18} ({message})")
 
         print("-" * 70)
         print("Tempo Médio de Processamento e Log do Status (Geral Acumulado):")
@@ -307,9 +361,9 @@ class SiteManager:
                 else:
                     print(f"  - {category:<10}: N/A (0 itens no ciclo)")
 
-            if self.last_cycle_overall_avg_proc_log_time is not None:
+            if self.last_cycle_overall_avg_response_time is not None:
                 print(
-                    f"  - Total Ciclo: {self.last_cycle_overall_avg_proc_log_time:.3f}s ({self.last_cycle_overall_proc_log_count} itens no ciclo)"
+                    f"  - Total Ciclo: {self.last_cycle_overall_avg_response_time:.3f}s ({self.last_cycle_overall_response_count} itens no ciclo)"
                 )
             elif not data_found_in_cycle_snapshot:
                 print(f"  - Total Ciclo: N/A (sem itens com tempo no ciclo anterior)")
@@ -337,8 +391,10 @@ class SiteManager:
 
 
 if __name__ == "__main__":
-    logging.info("============= Script SiteManager (FCFS) Iniciado =============")
-    print("TERMINAL: ============= Script SiteManager (FCFS) Iniciado =============")
+    logging.info("============= Script SiteManager (Priority) Iniciado =============")
+    print(
+        "TERMINAL: ============= Script SiteManager (Priority) Iniciado ============="
+    )
     sites_to_check = [
         "https://www.google.com",
         "https://httpbin.org/delay/1",
@@ -354,7 +410,6 @@ if __name__ == "__main__":
         "https://httpbin.org/delay/3",
         "https://httpbin.org/status/418",
         "http://localhost:12345/test",
-        "http://10.255.255.1:81",
     ]
     manager = SiteManager(sites_to_check)
     try:
@@ -366,7 +421,9 @@ if __name__ == "__main__":
         logging.exception("Exceção não tratada no loop principal:")
         print(f"\nTERMINAL: Erro crítico: {e}")
     finally:
-        logging.info("============= Script SiteManager (FCFS) Finalizado =============")
+        logging.info(
+            "============= Script SiteManager (Priority) Finalizado ============="
+        )
         print(
-            "TERMINAL: ============= Script SiteManager (FCFS) Finalizado ============="
+            "TERMINAL: ============= Script SiteManager (Priority) Finalizado ============="
         )
