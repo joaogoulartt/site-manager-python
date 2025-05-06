@@ -354,7 +354,6 @@ if __name__ == "__main__":
         "https://httpbin.org/delay/3",
         "https://httpbin.org/status/418",
         "http://localhost:12345/test",
-        "http://10.255.255.1:81",
     ]
     manager = SiteManager(sites_to_check)
     try:
