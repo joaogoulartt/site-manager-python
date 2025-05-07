@@ -7,16 +7,15 @@ import os
 import datetime
 
 LOG_DIR = "logs"
-SUCCESS_LOG_FILE = os.path.join(LOG_DIR, "success_log.txt")
-WARNING_LOG_FILE = os.path.join(LOG_DIR, "warning_log.txt")
-ERROR_LOG_FILE = os.path.join(LOG_DIR, "error_log.txt")
-GENERAL_LOG_FILE = os.path.join(LOG_DIR, "general_log.txt")
+SUCCESS_LOG_FILE = os.path.join(LOG_DIR, "success.log")
+WARNING_LOG_FILE = os.path.join(LOG_DIR, "warning.log")
+ERROR_LOG_FILE = os.path.join(LOG_DIR, "error.log")
+GENERAL_LOG_FILE = os.path.join(LOG_DIR, "general.log")
 
 PRIORITY_SCHEDULER_INTERVAL = 5
 UPDATE_INTERVAL = 1
 
 class LogEntry:
-    """Representa uma entrada de log com detalhes relevantes."""
     def __init__(self, site, status, message, arrival_time):
         self.site = site
         self.status = status
@@ -26,19 +25,16 @@ class LogEntry:
         self.priority_process_time = None
 
     def __str__(self):
-        """Representação em string para logging."""
         arrival_str = self.arrival_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
         priority_process_str = self.priority_process_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] if self.priority_process_time else "N/A"
         return f"Arrival: {arrival_str} | Priority_Process: {priority_process_str} | Status: {self.status} | Site: {self.site} | Message: {self.message}"
 
     def to_file_str(self):
-        """Representação em string especificamente para escrita nos arquivos de status."""
         arrival_timestamp = self.arrival_time.timestamp()
         return f"{arrival_timestamp}|{self.status}|{self.site}|{self.message}"
 
     @classmethod
     def from_file_str(cls, line):
-        """Cria um objeto LogEntry a partir de uma linha lida de um arquivo de status."""
         try:
             parts = line.strip().split('|', 3)
             if len(parts) == 4:
@@ -88,7 +84,6 @@ class SiteManager:
         self._setup_logging()
 
     def _setup_logging(self):
-        """Cria o diretório de log e limpa os arquivos de log."""
         os.makedirs(LOG_DIR, exist_ok=True)
         log_files_to_clear = [
             SUCCESS_LOG_FILE,
@@ -106,7 +101,6 @@ class SiteManager:
 
 
     def check_status(self, site):
-        """Verifica o status de um único site e coloca o resultado na fila apropriada."""
         if self._stop_event.is_set():
             return
 
@@ -160,10 +154,6 @@ class SiteManager:
 
 
     def _fcfs_log_writer(self, log_queue, log_file, file_lock, category_name):
-        """
-        Função alvo para as threads escritoras de log FCFS.
-        Lê de uma fila e escreve em um arquivo de log usando um lock.
-        """
         print(f"Iniciando thread escritora FCFS para: {category_name}")
         while not self._stop_event.is_set():
             try:
@@ -286,9 +276,6 @@ class SiteManager:
 
 
     def run_checks(self, num_threads=4):
-        """
-        Inicia o processo de monitoramento, incluindo escritores FCFS e Agendador Prioritário.
-        """
         self.threads = []
 
         writer_threads_config = [
@@ -319,13 +306,11 @@ class SiteManager:
                     self.last_update = current_time
 
     def stop(self):
-        """Sinaliza a todas as threads para pararem graciosamente."""
         print("\nEnviando sinal de parada para as threads...")
         self._stop_event.set()
 
 
     def update_screen(self):
-        """Limpa a tela e exibe os status atuais dos sites e os tempos médios de espera."""
         os.system("cls" if os.name == "nt" else "clear")
         print("-" * 70)
         print("          Monitor de Site com Simulação de Log")
